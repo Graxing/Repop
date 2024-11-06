@@ -1,0 +1,65 @@
+if (!require("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("DESeq2")
+BiocManager::install("pasilla")
+BiocManager::install("ggrepel")
+BiocManager::install("ggplot")
+library(BiocManager)
+library(pasilla)
+library(ggrepel)
+library(ggplot)
+# Input for count data
+pasCts <- system.file("extdata",
+                      "pasilla_gene_counts.tsv",
+                      package="pasilla", mustWork=TRUE)
+# Input for metadata
+pasAnno <- system.file("extdata",
+                       "pasilla_sample_annotation.csv",
+                       package="pasilla", mustWork=TRUE)
+# Count Matrix
+count_csv = read.csv(pasCts,sep="\t",row.names="gene_id")
+cts <- as.matrix(count_csv)
+coldata <- read.csv(pasAnno, row.names=1)
+coldata$condition <- factor(coldata$condition)
+rownames(coldata) <- sub("fb", "", rownames(coldata))
+# Check if data same
+all(rownames(coldata) %in% colnames(cts))
+# Check if in same order
+all(rownames(coldata) == colnames(cts))
+# To make in same order
+cts <- cts[, rownames(coldata)]
+all(rownames(coldata) == colnames(cts))
+# creating dds object for analysis
+dds <- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~ condition)
+# Differential Expression Analysis
+dds <- DESeq(dds)
+res <- results(dds)
+write.csv(res, file="DESeq_Analysis.csv")
+df <- read.csv("./DESeq_Analysis.csv", header=TRUE)
+df$Diffexpressed <- "NO"
+df$Diffexpressed[df$log2FoldChange > 0.1 & df$pvalue < 0.05] <- "UP"
+df$Diffexpressed[df$log2FoldChange < -0.1 & df$pvalue < 0.05] <- "DOWN"
+ggplot(data = df, aes(x = log2FoldChange, y = -log10(pvalue), col = Diffexpressed)) +
+  geom_vline(xintercept = c(-1, 1), col = "black", linetype = 'dashed') +
+  geom_vline(xintercept = c(-0.5, 0.5), col ="green", linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.00003), col = "red", linetype = "dashed") +
+  geom_hline(yintercept = -log10(0.05), col = "black", linetype = "dashed") +
+  geom_point(size = 2) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"),
+        axis.title.y = element_text(size = 10, colour = "black", face = "bold"),
+        axis.title.x = element_text(size = 10, colour = "black", face = "bold"),
+        axis.text.x = element_text(size = 8, colour = "black", face = "bold"),
+        axis.text.y = element_text(size = 8, colour = "black"),
+        legend.title = element_text(size = 10, colour = "black", face="bold"),
+        legend.text = element_text(size = 8, colour="black", face="bold"))+
+  scale_color_manual(values = c("#00AFBB", "grey", "pink"),
+                     labels = c("Downregulated", "Not Significant", "Upregulated"))
+upregulated_genes <- rownames(df[df$Diffexpressed == "UP", ])
+downregulated_genes <- rownames(df[df$Diffexpressed == "DOWN", ])
+# Export upregulated genes to a text file
+write(upregulated_genes, file = "upregulated_genes.txt")
+# Export downregulated genes to a text file
+write(downregulated_genes, file = "downregulated_genes.txt")
